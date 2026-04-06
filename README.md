@@ -15,7 +15,8 @@ A minimal React-like rendering engine built from scratch in vanilla JavaScript. 
   - [4. Reconciliation](#4-reconciliation)
   - [5. Commit Phase](#5-commit-phase)
   - [6. useState Hook](#6-usestate-hook)
-  - [7. The `html` Helper](#7-the-html-helper)
+  - [7. useEffect Hook](#7-useeffect-hook)
+  - [8. The `html` Helper](#8-the-html-helper)
 - [Complete Render Flow](#complete-render-flow)
 - [Getting Started](#getting-started)
 - [Usage Example](#usage-example)
@@ -32,7 +33,7 @@ React's internals are notoriously complex. This project strips them down to thei
 - The fiber tree work loop
 - DOM creation and updates
 - Diffing and reconciliation (add, update, delete)
-- The `useState` hook with re-render triggering
+- The `useState` and `useEffect` hooks with re-render triggering and effect cleanup
 
 ---
 
@@ -204,7 +205,48 @@ Calling `setState` doesn't immediately update state — it pushes an action into
 
 ---
 
-### 7. The `html` Helper
+### 7. useEffect Hook
+
+`useEffect` allows you to handle side effects (like API calls or timers) and their cleanups. It stores the effect callback, its dependencies, and any returned cleanup function on the fiber's hook state.
+
+**`useEffect(callback, deps)`**:
+
+1. Checks if dependencies have changed since the last render.
+2. If they have (or if it's the first render), the effect is tagged to be run.
+3. During the `commitRoot()` phase, all tagged effects are executed:
+   - Any existing cleanup function from the previous render is called first.
+   - The new effect callback is then executed, and its return value (the new cleanup function) is stored for the next pass.
+
+```js
+export function useEffect(callback, deps) {
+  const oldHook = wipFiber.alternate?.hooks?.[hookIndex];
+
+  const hasNoDeps = !deps;
+  const hasChangedDeps = oldHook
+    ? !deps.every((dep, i) => dep === oldHook.deps[i])
+    : true;
+
+  const hook = {
+    deps,
+    callback,
+    cleanup: oldHook ? oldHook.cleanup : undefined,
+  };
+
+  if (hasNoDeps || hasChangedDeps) {
+    wipFiber.effects = wipFiber.effects || [];
+    wipFiber.effects.push(hook);
+  }
+
+  wipFiber.hooks.push(hook);
+  hookIndex++;
+}
+```
+
+When a component is unmounted (during `DELETION`), all associated cleanup functions are automatically called to prevent memory leaks.
+
+---
+
+### 8. The `html` Helper
 
 Writing raw `createElement` calls is verbose. The `html()` helper accepts a nested JS object and translates it into `createElement` calls:
 
@@ -324,7 +366,7 @@ render(createElement(Counter, null), container);
 
 - No JSX support (use the `html()` helper instead)
 - Event listeners are set as direct DOM properties (`onclick`) — no `addEventListener` or event delegation
-- Only `useState` is implemented — no `useEffect`, `useRef`, `useMemo`, etc.
+- Only `useState` and `useEffect` are implemented — no `useRef`, `useMemo`, etc.
 - No error boundaries or suspense
 - No keys support in lists — reconciliation relies solely on position
 - `requestIdleCallback` is not available in all environments (not supported in Safari without a polyfill)
